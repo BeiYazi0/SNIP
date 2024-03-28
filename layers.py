@@ -160,6 +160,73 @@ class MaskedLSTMCell(BaseMaskedLayer):
         return torch.stack(outputs)
 
 
+class MaskedGRUCell(BaseMaskedLayer):
+    def __init__(self, input_size, hidden_size):
+        self.weight_shape = [(3, hidden_size, input_size), (3, hidden_size, hidden_size)]
+        self._weight_num = 3 * (input_size * hidden_size + hidden_size * hidden_size)
+        super(MaskedGRUCell, self).__init__()
+        self.p = 3 * hidden_size * input_size
+
+        self.W_x = nn.Parameter(torch.zeros((3, hidden_size, input_size)))
+        self.W_h = nn.Parameter(torch.zeros((3, hidden_size, hidden_size)))
+        self.init_parameters()
+        self.bias = nn.Parameter(torch.zeros((3, hidden_size)))
+        self.state = (None, )
+
+    def apply_mask(self, mask):
+        mask1 = mask[:self.p].view(self.weight_shape[0]).float()
+        mask2 = mask[self.p:].view(self.weight_shape[1]).float()
+
+        for mask in self.mask:
+            mask.requires_grad = False
+        self.W_x.grad.zero_()
+        self.W_h.grad.zero_()
+
+        self.W_x.register_hook(lambda grad: grad * mask1)
+        self.W_h.register_hook(lambda grad: grad * mask2)
+        self.mask[0][:] = mask1
+        self.mask[1][:] = mask2
+
+    def init_parameters(self):
+        for weight in self.W_x:
+            nn.init.xavier_normal_(weight)
+        for weight in self.W_h:
+            nn.init.xavier_normal_(weight)
+
+    def init_state(self, batch_size, num_hiddens):
+        self.state = (torch.zeros((batch_size, num_hiddens)).cuda(), )
+
+    def reset_state(self):
+        (H, ) = self.state
+        H.fill_(0.)
+        self.state = (H, )
+
+    def forward(self, inputs):
+        masked_params = []
+        for i in range(3):
+            weight_x = self.W_x[i]
+            mask = self.mask[0][i]
+            masked_params.append((weight_x * mask).transpose(1, 0))  # 转置方便下面实现WT @ X
+
+            weight_h = self.W_h[i]
+            mask = self.mask[1][i]
+            masked_params.append((weight_h * mask).transpose(1, 0))  # 转置方便下面实现WT @ X
+
+        [W_xz, W_hz, W_xr, W_hr, W_xh, W_hh] = masked_params
+        [b_z, b_r, b_h] = self.bias
+
+        (H, ) = self.state
+        outputs = []  # 各个时间步的输出
+        for X in inputs:
+            Z = torch.sigmoid((X @ W_xz) + (H @ W_hz) + b_z)
+            R = torch.sigmoid((X @ W_xr) + (H @ W_hr) + b_r)
+            H_tilda = torch.tanh((X @ W_xh) + ((R * H) @ W_hh) + b_h)
+            H = Z * H + (1 - Z) * H_tilda
+            outputs.append(H)
+        self.state = (H.detach(), )  # Wraps hidden states in new Tensors, to detach them from their history
+        return torch.stack(outputs)
+
+
 class StateSelect(nn.Module):
     def __init__(self):
         super(StateSelect, self).__init__()

@@ -5,11 +5,13 @@ from matplotlib import pyplot as plt
 from matplotlib_inline import backend_inline
 from torch.optim import lr_scheduler
 
-from dataload import load_minst, load_cifar_10
-from models import LeNet_300_100, LeNet_5_Caffe, AlexNet, MaskedLSTM, MaskedVgg, MaskedWideResNet, LeNet_5_Caffe_t, MaskedVgg_t
-from train import train_net, train_rnn, train_net_t
+from dataload import load_minst, load_cifar_10, load_minst_random
+from models import LeNet_300_100, LeNet_5_Caffe, AlexNet, MaskedLSTM, MaskedVgg, MaskedWideResNet, LeNet_5_Caffe_t, \
+    MaskedVgg_t, MaskedGRU
+from train import train_net, train_rnn, train_net_t, train_show_loss
 
 torch.manual_seed(2019)
+
 
 def set_axes(axes, xlabel, ylabel, xlim, ylim, legend, xscale, yscale):
     """Set the axes for matplotlib.
@@ -28,7 +30,7 @@ def set_axes(axes, xlabel, ylabel, xlim, ylim, legend, xscale, yscale):
 
 def plot(X, Y=None, xlabel=None, ylabel=None, legend=None, xlim=None,
          ylim=None, xscale='linear', yscale='linear',
-         fmts=('-b', '-C1', '-g', '-r', '-m', '-C5'), figsize=(4, 3.5), axes=None, twins=False, ylim2=None):
+         fmts=('-r', '-b', '-g', '-m', '-C1', '-C5'), figsize=(4, 3.5), axes=None, twins=False, ylim2=None):
     backend_inline.set_matplotlib_formats('svg')
     plt.rcParams['figure.figsize'] = figsize
     axes = axes if axes else plt.gca()
@@ -65,6 +67,7 @@ def plot(X, Y=None, xlabel=None, ylabel=None, legend=None, xlim=None,
         i += 1
     set_axes(axes, xlabel, ylabel[0], xlim, ylim, legend, xscale, yscale)
 
+
 class Tester:
     @staticmethod
     def test_topk():
@@ -97,7 +100,7 @@ class Tester:
             t_ratios.append(net.sparsity_ratio)
             test_err.append(err)
 
-        plot(torch.tensor(t_ratios)*100, torch.tensor(test_err)*100, xlabel='Sparsity (%)', ylabel=['Error (%)'])
+        plot(torch.tensor(t_ratios) * 100, torch.tensor(test_err) * 100, xlabel='Sparsity (%)', ylabel=['Error (%)'])
         # plt.show()
         plt.savefig("res/lenet-300-100.png")
 
@@ -122,7 +125,8 @@ class Tester:
             t_ratios.append(net.sparsity_ratio)
             test_err.append(err)
 
-        plot(torch.tensor(t_ratios) * 100, torch.tensor(test_err) * 100, ylim=[0.6, 1.2], xlabel='Sparsity (%)', ylabel=['Error (%)'])
+        plot(torch.tensor(t_ratios) * 100, torch.tensor(test_err) * 100, ylim=[0.6, 1.2], xlabel='Sparsity (%)',
+             ylabel=['Error (%)'])
         plt.show()
         # plt.savefig("res/lenet-5.png")
 
@@ -167,6 +171,22 @@ class Tester:
 
         net = MaskedLSTM(28, hidden_size, 2, 10)
         net.init_lstm_state(batch_size, hidden_size)
+        trainer = torch.optim.SGD(net.parameters(), weight_decay=0.0005, lr=lr, momentum=0.9)
+        scheduler = lr_scheduler.StepLR(trainer, step_size=25000, gamma=0.1)
+        err = train_rnn(net, loss, trainer, data_iter, epoch, path, 0.95, scheduler)
+        print("true sparsity: %f%%    test_err: %.2f%%" % (net.sparsity_ratio * 100, err * 100))
+
+    @staticmethod
+    def test_masked_gru(hidden_size):
+        path = "models/gru"
+        epoch, batch_size, lr = 100, 100, 0.1
+
+        loss = nn.CrossEntropyLoss().cuda(torch.device("cuda:0"))
+
+        data_iter = load_minst(batch_size, flatten=False, rnn=True)
+
+        net = MaskedGRU(28, hidden_size, 1, 10)
+        net.init_gru_state(batch_size, hidden_size)
         trainer = torch.optim.SGD(net.parameters(), weight_decay=0.0005, lr=lr, momentum=0.9)
         scheduler = lr_scheduler.StepLR(trainer, step_size=25000, gamma=0.1)
         err = train_rnn(net, loss, trainer, data_iter, epoch, path, 0.95, scheduler)
@@ -246,3 +266,44 @@ class Tester:
         scheduler = lr_scheduler.StepLR(trainer, step_size=30000, gamma=0.1)
         err = train_net_t(net, loss, trainer, data_iter, epoch, path, 0.95, scheduler)
         print("true sparsity: %f%%    test_err: %.2f%%" % (net.sparsity_ratio * 100, err * 100))
+
+    @staticmethod
+    def test_loss():
+        epoch, batch_size, lr = 60, 100, 0.01
+
+        loss = nn.CrossEntropyLoss()
+
+        true_iter, random_iter = load_minst_random(batch_size)
+        steps = len(true_iter) * epoch
+
+        print('true labels')
+        net = LeNet_5_Caffe()
+        trainer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+        tl = train_show_loss(net, loss, trainer, true_iter, epoch)
+
+        print('true labels(pruned)')
+        net = LeNet_5_Caffe()
+        net.apply_masks(next(iter(true_iter)), loss, 0.99)
+        trainer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+        tlp = train_show_loss(net, loss, trainer, true_iter, epoch)
+
+        print('random labels')
+        net = LeNet_5_Caffe()
+        trainer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+        rl = train_show_loss(net, loss, trainer, random_iter, epoch)
+
+        print('random labels + reg')
+        net = LeNet_5_Caffe()
+        trainer = torch.optim.SGD(net.parameters(), weight_decay=0.0005, lr=lr, momentum=0.9)
+        rld = train_show_loss(net, loss, trainer, random_iter, epoch)
+
+        print('random labels(pruned)')
+        net = LeNet_5_Caffe()
+        net.apply_masks(next(iter(random_iter)), loss, 0.99)
+        trainer = torch.optim.SGD(net.parameters(), lr=lr, momentum=0.9)
+        rlp = train_show_loss(net, loss, trainer, random_iter, epoch)
+
+        plot(torch.arange(steps) / 1000, [tl, tlp, rl, rld, rlp], xlabel='Iteration (×10^3)', ylabel=['Loss'],
+             legend=['true labels', 'true labels(pruned)', 'random labels', 'random labels + reg',
+                     'random labels(pruned)'])
+        plt.show()

@@ -1,7 +1,8 @@
 import torch
 from torch import nn
 
-from layers import BaseMaskedLayer, MaskedConv2d, MaskedLinear, MaskedLSTMCell, StateSelect, MaskedResidual, MaskedConv2d_t, MaskedLinear_t
+from layers import BaseMaskedLayer, MaskedConv2d, MaskedLinear, MaskedLSTMCell, StateSelect, MaskedResidual, \
+    MaskedConv2d_t, MaskedLinear_t, MaskedGRUCell
 
 
 class BaseModel:
@@ -123,6 +124,28 @@ class MaskedLSTM(BaseModel):
     def reset_state(self):
         for layer in self.net:
             if isinstance(layer, MaskedLSTMCell):
+                layer.reset_state()
+
+
+class MaskedGRU(BaseModel):
+    def __init__(self, input_size, hidden_size, num_layers, output_size):
+        net = nn.Sequential()
+        for i in range(num_layers):
+            net.add_module(f"gru{i}", MaskedGRUCell(input_size, hidden_size))
+            input_size = hidden_size
+        net.add_module("select", StateSelect())  # 选取最后一个时间步的状态作为linear的输入
+        net.add_module("fc", MaskedLinear(hidden_size, output_size))
+
+        super(MaskedGRU, self).__init__(net.cuda(torch.device("cuda:0")))
+
+    def init_gru_state(self, batch_size, num_hiddens):
+        for layer in self.net:
+            if isinstance(layer, MaskedGRUCell):
+                layer.init_state(batch_size, num_hiddens)
+
+    def reset_state(self):
+        for layer in self.net:
+            if isinstance(layer, MaskedGRUCell):
                 layer.reset_state()
 
 

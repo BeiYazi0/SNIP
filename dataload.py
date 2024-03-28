@@ -110,3 +110,21 @@ class CifarData(data.Dataset):
 
     def __len__(self):
         return len(self.labels)
+
+
+def load_minst_random(batch_size):
+    datas = loadmat('data/MNISTData.mat')
+    device = torch.device("cuda:0")
+
+    X_train = torch.tensor(datas['X_Train'], dtype=torch.float32, device=device)
+    y_train = datas['D_Train'].T.argmax(axis=1)
+    y_true = torch.tensor(y_train, dtype=torch.int64, device=device)
+    np.random.shuffle(y_train)
+    y_random = torch.tensor(y_train, dtype=torch.int64, device=device)
+
+    X_train = X_train.permute(2, 0, 1)  # (60000, 28, 28)
+    X_train = torch.unsqueeze(X_train, dim=1)  # (60000, 1, 28, 28)
+
+    random_iter = data.DataLoader(data.TensorDataset(X_train, y_random), batch_size, shuffle=True)
+    true_iter = data.DataLoader(data.TensorDataset(X_train, y_true), batch_size, shuffle=True)
+    return true_iter, random_iter

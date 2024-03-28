@@ -17,5 +17,7 @@ if __name__ == '__main__':
     # Tester.test_masked_vggD()
     # Tester.test_masked_wideres(8)
     # Tester.test_masked_lstm(256)
+    Tester.test_masked_gru(256)
+    # Tester.test_MaskedVgg_t()
+    # Tester.test_loss()
     # Tester.test_train_with_mask(0.99)
-    Tester.test_MaskedVgg_t()

@@ -128,3 +128,20 @@ def train_net_t(net, loss, trainer, data_iter, epochs, path, k_ratio, scheduler=
         net.load_state_dict(torch.load(path))
 
     return 1 - evaluate_accuracy(net, test_iter)
+
+
+def train_show_loss(net, loss, trainer, train_iter, epochs):
+    loss_history = []
+    for epoch in range(epochs):
+        net.train()
+        for X, y in train_iter:
+            y_hat = net(X)
+            l = loss(y_hat, y)
+            loss_history.append(l.item())
+
+            trainer.zero_grad()  # 清除了优化器中的grad
+            l.backward()  # 通过进行反向传播来计算梯度
+            trainer.step()  # 通过调用优化器来更新模型参数
+        print("epoch: %d    loss: %.2f" % (epoch + 1, loss_history[-1]))
+
+    return torch.tensor(loss_history)

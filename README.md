@@ -14,6 +14,8 @@
 
 剪枝后，稀疏的网络按照常规训练。
 
+---
+
 ## 1 Introduction
 
 大部分现有方法都是基于显著性准则在预训练的网络中寻找权重的子集，或是使用稀疏性惩罚。
@@ -339,6 +341,14 @@ LSTM-b
 
 ![png](./res/lstm_b.png)
 
+GRU-s
+
+![png](./res/gru-s.png)
+
+GRU-b
+
+![png](./res/gru-b.png)
+
 #### 5.4 了解哪些连接被修剪
 
 作者使用 minst 和 fashion-minst 数据集，展示不同稀疏度（自上到下，10% -> 90%）下的 LeNet-300-100 的第一层连接情况，亮点表示连接。
@@ -371,11 +381,13 @@ LSTM-b
 
 而剪枝后的网络（橙线）则无法拟合这种数据集，这说明剪枝后的网络没有过拟合随机标签的能力，仅仅只能拟合真实标签。
 
+![png](./imgs/random.png)
+
 这进一步强调了作者提出的显著性准则的重要性。
 
-待补充。
+复现效果与作者基本一致。
 
-![png](./imgs/random.png)
+![png](./res/random.png)
 
 ## 6.讨论和未来工作
 
@@ -540,3 +552,34 @@ class LeNet_5_Caffe_t(BaseModel):
 尝试对 VGG-D 进行相似的实验，训练结果如下，同等稀疏度下，似乎与之前的训练结果相差无几，在 epoch 较小时，val_acc 极易发生振荡(50% -> 70% -> 50%)。
 
 ![png](./res/vgg_t.png)
+
+
+时隔数日，突然发现一篇论文 [Progressive Skeletonization: Trimming more fat from a networkat initialization](https://arxiv.org/pdf/2006.09081v1.pdf)，
+其思想和上述有些相似，迭代SNIP， 在修剪过程中的parameters不会被删除，而是暂时weight=0，gradient有可能不等于0，所以有可能被恢复。
+稀疏性满足要求后weight=0的parameters才会被剪掉。
+
+动机：作者发现网络剪枝超过了一定的稀疏程度(约95%)后，一些经典剪枝方法（SNIP,GRASP）不能保证网络性能，甚至比随机修剪还要差。
+
+首先是 sinp 中显著性准则的计算：
+
+![png](./imgs/snip.png)
+
+不同的是，作者提出计算 g(P) = ∂L/∂P * W，其中 P = W * M。
+
+![png](./imgs/iter-snip.png)
+
+其算法流程如下
+
+![png](./imgs/algorithm_t.png)
+
+显然，当 T = 1时，算法即 SNIP。
+
+从实验结果看，迭代 SNIP 的优势体现在保留 5% 以下的网络中。到10%以上，其优势就不明显了。
+
+![png](./imgs/iter-res.png)
+
+从下表看，大部分效果甚至不如random，作者猜想对于一个具挑战性的任务(Imagenet)，Resnet50架构可能不会被过参数化。
+
+![png](./imgs/iter-top.png)
+
+
